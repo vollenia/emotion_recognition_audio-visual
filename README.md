@@ -16,7 +16,7 @@ Neutral | 3,458 | 44.59%
 Sad | 885 | 11.41%
 
 ## Feature Extraction
-* Using the im context of the unimodal models created pandas dataframes containing acousic/visulal features and labels (Mel log filterbanks/grayscaled face detections as features)
+* Using pandas dataframes containing acousic/visulal features and labels (Mel log filterbanks/grayscaled face detections as features) which were created in context of the unimodal models
 * Creating a new uniform pandas dataframe by taking the intersection of both dataframes in order to ensure that data from both modalities is present for all samples
 * Padding/cutting audio features to a universal shape (mean nr of frames + std)
 
