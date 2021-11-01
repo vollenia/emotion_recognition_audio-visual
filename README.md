@@ -2,7 +2,7 @@
 
 ## Summary
 The goal of this project was to train and evaluate a model that would be able to automatically recognize one of **4 emotion classes** _(Angry, Happy, Neutral, Sad)_ from a speech signal and a video stream by combining the two modalities via model-level fusion.  
-In addition to the **emotion class model** auxiliary models for **activation** and **valence** were trained.
+In addition to the **emotion class model**, auxiliary models for **activation** and **valence** were trained.
 
 ## Data
 The data consisted of utterances from 12 speakers (6 female / 6 male) collected in 6 dyadic sessions. The vast majority of the data is assumed to be natural and not acted.
