@@ -13,10 +13,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import f1_score
 
-# Batch size and nr of epochs
-BATCH_SIZE = 128
-EPOCHS = 25
-
 # MODEL + SUPPORT FUNCTIONS FOR TRAINING
 # Multimodal model
 class MM(nn.Module): 
@@ -144,9 +140,6 @@ parser.add_argument("-l", "--label", required=True,
 	help = "type of label to be used (LABEL or ACTIVATION or VALENCE")
 args = vars(parser.parse_args())
 
-# Loading pandas dataset
-df = pd.read_pickle(args["data"])
-
 # Converts continuous labels (activation/valence) into discrete classes
 def map_to_bin(cont_label):
 	if cont_label <= 2.5:
@@ -155,18 +148,6 @@ def map_to_bin(cont_label):
 		return 1.0
 	elif cont_label >= 3.5:
 		return 2.0
-
-for i in enumerate(df.index):
-	df.at[i[1], 'ACTIVATION'] = map_to_bin(df['ACTIVATION'][i[0]])
-	df.at[i[1], 'VALENCE'] = map_to_bin(df['VALENCE'][i[0]])
-
-# Converting emotion labels into classes
-df["LABEL"].replace({'anger': 0, 'happiness': 1, 'neutral': 2, 'sadness': 3}, inplace=True)
-
-# Computing the maximal length of frames (mean_length + std)
-nr_of_frames = [i.shape[0] for i in df["AUDIO"]]
-max_len_features = int(np.mean(nr_of_frames)+np.std(nr_of_frames))
-print(f'features will be cut/extended to length: {max_len_features}')
 
 # Splits data according to the 6 original sessions (given the speaker id)
 def create_sessions(df):
@@ -222,7 +203,6 @@ def create_sessions(df):
 	
 	return [a_1, a_2, a_3, a_4, a_5, a_6], [v_1, v_2, v_3, v_4, v_5, v_6], [l_1, l_2, l_3, l_4, l_5, l_6]
 	
-a, v, l = create_sessions(df)
 # SUPPORT FUNCTIONS FOR THE K-FOLD-SPLIT (SESSION-WISE-SPLIT)
 
 # K-fold functions (AUDIO)
@@ -303,127 +283,151 @@ def insight(actual, pred):
 		else:
 			print(i, '\t', correct_dict[i], '\t', round(correct_dict[i]/actual_dict[i]*100, 4), '%')
 
-# 6-FOLD CROSS VALIDATION
-statistics = {}
-accuracy_of_k_fold = []
-F1u_of_k_fold = []
-F1w_of_k_fold = []
-for i in range(len(l)):
-	print(f'Iteration: {i}')
-	X_train_a, X_test_a = list_arrays(a[:i] + a[i+1:]), a[i]
-	X_train_v, X_test_v = np.concatenate((v[:i] + v[i+1:]),axis=0), np.array(v[i])
-	y_train, y_test = np.concatenate((l[:i] + l[i+1:]),axis=0), np.array(l[i])
-	class_weights = compute_class_weight("balanced", classes=np.unique(y_train), y=y_train)
-	print(f'CLASS WEIGHTS: {class_weights}')
-	
-	features_mean_a, features_std_a = mean_std(X_train_a) #concatenates all timeframes into one array to extract mean+std (necessary sonce files have dofferent nr of frames)
-	features_mean_v, features_std_v = np.mean(X_train_v), np.std(X_train_v)
+if __name__ == '__main__':
+	# Loading pandas dataset
+	df = pd.read_pickle(args["data"])
+
+	# Converts continuous labels (activation/valence) into discrete classes
+	for i in enumerate(df.index):
+		df.at[i[1], 'ACTIVATION'] = map_to_bin(df['ACTIVATION'][i[0]])
+		df.at[i[1], 'VALENCE'] = map_to_bin(df['VALENCE'][i[0]])
+
+	# Converting emotion labels into classes
+	df["LABEL"].replace({'anger': 0, 'happiness': 1, 'neutral': 2, 'sadness': 3}, inplace=True)
+
+	# Computing the maximal length of frames (mean_length + std)
+	nr_of_frames = [i.shape[0] for i in df["AUDIO"]]
+	max_len_features = int(np.mean(nr_of_frames)+np.std(nr_of_frames))
+	print(f'features will be cut/extended to length: {max_len_features}')
+
+	# Splitting data according to the 6 original sessions (given the speaker id)
+	a, v, l = create_sessions(df)
+
+	# Batch size and nr of epochs
+	BATCH_SIZE = 128
+	EPOCHS = 25
+
+	# 6-FOLD CROSS VALIDATION
+	statistics = {}
+	accuracy_of_k_fold = []
+	F1u_of_k_fold = []
+	F1w_of_k_fold = []
+	for i in range(len(l)):
+		print(f'Iteration: {i}')
+		X_train_a, X_test_a = list_arrays(a[:i] + a[i+1:]), a[i]
+		X_train_v, X_test_v = np.concatenate((v[:i] + v[i+1:]),axis=0), np.array(v[i])
+		y_train, y_test = np.concatenate((l[:i] + l[i+1:]),axis=0), np.array(l[i])
+		class_weights = compute_class_weight("balanced", classes=np.unique(y_train), y=y_train)
+		print(f'CLASS WEIGHTS: {class_weights}')
 		
-	# Standardizing the features of the sessions individually
-	X_train_a = [standardize(i, features_mean_a, features_std_a) for i in X_train_a]
-	X_train_v = standardize(X_train_v, features_mean_v, features_std_v, video=True) #standardizing the features of the session-combinations
-	# Cutting/padding TRAIN to uniform length
-	X_train_a = zeros(X_train_a, max_len_features)
-	
-	# Standardizing TEST with MEAN & STD of TRAIN
-	X_test_a = [standardize(i, features_mean_a, features_std_a) for i in X_test_a]
-	X_test_v = standardize(X_test_v, features_mean_v, features_std_v, video=True)
-	# Cutting/padding TEST to uniform length
-	X_test_a = zeros(X_test_a, max_len_features)
-	
-	# Splitting TEST into DEV and FINAL_TEST
-	X_dev_a, X_final_test_a, X_dev_v, X_final_test_v, y_dev, y_final_test = SSS(X_test_a, X_test_v, y_test)
-	
-	# Gathering general information
-	l_t, c_t = np.unique(y_train, return_counts=True)
-	l_d , c_d = np.unique(y_dev, return_counts=True)
-	l_f_t, c_f_t = np.unique(y_final_test, return_counts=True)
-	
-	general = {"train_total": len(y_train), "train_dist": c_t.tolist(), 
-			"dev__total": len(y_dev), "dev__dist": c_d.tolist(), 
-			"final_test__total": len(y_final_test), "final_test__dist": c_f_t.tolist()}
-	
-	# Converting labels and class_weights to tensors
-	y_train = torch.LongTensor(y_train)
-	y_dev = torch.LongTensor(y_dev).cuda()
-	y_final_test = torch.LongTensor(y_final_test).cuda()
-	class_weights = torch.Tensor(class_weights).cuda()
-	
-	X_dev_a = X_dev_a.cuda()
-	X_dev_v = X_dev_v.cuda()
-	X_final_test_a = X_final_test_a.cuda()
-	X_final_test_v = X_final_test_v.cuda()
-	
-	# Performing random permutation
-	perm_ind = torch.randperm(len(y_train))
-	X_train_a = X_train_a[perm_ind].cuda()
-	X_train_v = X_train_v[perm_ind].cuda()
-	y_train = y_train[perm_ind].cuda()
-	
-	print(f' X_train_a shape is: {X_train_a.shape} y_train length is: {len(y_train)}')
-	print(f' X_train_v shape is: {X_train_v.shape} y_train length is: {len(y_train)}')
-	
-	print(f' X_dev_a shape is: {X_dev_a.shape} y_dev length is: {len(y_dev)}')
-	print(f' X_dev_v shape is: {X_dev_v.shape} y_dev length is: {len(y_dev)}')
-	
-	print(f' X_final_test_a shape is: {X_final_test_a.shape} y_final_test length is: {len(y_final_test)}')
-	print(f' X_final_test_v shape is: {X_final_test_v.shape} y_final_test length is: {len(y_final_test)}')
-	
-	#-----------TRAINING STEP--------------
-	net = MM().cuda()  # reinitializing the NN for the new fold (in order to get rid of the learned parameters)
-	
-	optimizer = optim.Adam(net.parameters(), lr= 0.0001)
-	loss_function = nn.CrossEntropyLoss(weight=class_weights)
-	 
-	fold = {"general": general, "train_loss_fold": [], "train_acc_fold": [], "dev_loss_fold": [], "dev_acc_fold": []}
-	for epoch in range(EPOCHS):
-		# Training
-		train_loss_epoch, train_acc_epoch = training(X_train_a, X_train_v, y_train)
-		fold["train_loss_fold"].append(train_loss_epoch)
-		fold["train_acc_fold"].append(train_acc_epoch)
-		# Evaluation on DEV
-		dev_loss_epoch, dev_acc_epoch = testing(X_dev_a, X_dev_v, y_dev)
-		fold["dev_loss_fold"].append(dev_loss_epoch)
-		fold["dev_acc_fold"].append(dev_acc_epoch)
-		print(f'loss: {train_loss_epoch} {dev_loss_epoch} acc: {train_acc_epoch} {dev_acc_epoch}')
-	
-	# Evaluation on FINAL_TEST
-	final_test_predictions, final_test_acc_total = testing(X_final_test_a, X_final_test_v, y_final_test, final_test=True)
-	fold["ACC"] = final_test_acc_total
-	accuracy_of_k_fold.append(final_test_acc_total)
-	print(f'Accuracy of the final test: {final_test_acc_total}%')
-	
-	F1u = round(f1_score(torch.clone(y_final_test).cpu(), torch.clone(final_test_predictions).cpu(), average='macro'),4) #average='macro'
-	fold["F1u"] = F1u
-	F1u_of_k_fold.append(F1u)
-	print(f'F1u-Score of the final test: {F1u}')
-	
-	F1w = round(f1_score(torch.clone(y_final_test).cpu(), torch.clone(final_test_predictions).cpu(), average='weighted'),4) #average='macro' average='weighted'
-	fold["F1w"] = F1w
-	F1w_of_k_fold.append(F1w)
-	print(f'F1w-Score of the final test: {F1w}')
-	
-	fold["y_final_test"] = y_final_test.cpu().tolist()
-	fold["final_test_predictions"] = final_test_predictions.cpu().tolist()
-	
-	print(y_final_test[:20])
-	print(final_test_predictions[:20])
-	insight(y_final_test, final_test_predictions)
-	statistics[i] = fold
-	print('\n')
+		features_mean_a, features_std_a = mean_std(X_train_a) #concatenates all timeframes into one array to extract mean+std (necessary sonce files have dofferent nr of frames)
+		features_mean_v, features_std_v = np.mean(X_train_v), np.std(X_train_v)
+			
+		# Standardizing the features of the sessions individually
+		X_train_a = [standardize(i, features_mean_a, features_std_a) for i in X_train_a]
+		X_train_v = standardize(X_train_v, features_mean_v, features_std_v, video=True) #standardizing the features of the session-combinations
+		# Cutting/padding TRAIN to uniform length
+		X_train_a = zeros(X_train_a, max_len_features)
+		
+		# Standardizing TEST with MEAN & STD of TRAIN
+		X_test_a = [standardize(i, features_mean_a, features_std_a) for i in X_test_a]
+		X_test_v = standardize(X_test_v, features_mean_v, features_std_v, video=True)
+		# Cutting/padding TEST to uniform length
+		X_test_a = zeros(X_test_a, max_len_features)
+		
+		# Splitting TEST into DEV and FINAL_TEST
+		X_dev_a, X_final_test_a, X_dev_v, X_final_test_v, y_dev, y_final_test = SSS(X_test_a, X_test_v, y_test)
+		
+		# Gathering general information
+		l_t, c_t = np.unique(y_train, return_counts=True)
+		l_d , c_d = np.unique(y_dev, return_counts=True)
+		l_f_t, c_f_t = np.unique(y_final_test, return_counts=True)
+		
+		general = {"train_total": len(y_train), "train_dist": c_t.tolist(), 
+				"dev__total": len(y_dev), "dev__dist": c_d.tolist(), 
+				"final_test__total": len(y_final_test), "final_test__dist": c_f_t.tolist()}
+		
+		# Converting labels and class_weights to tensors
+		y_train = torch.LongTensor(y_train)
+		y_dev = torch.LongTensor(y_dev).cuda()
+		y_final_test = torch.LongTensor(y_final_test).cuda()
+		class_weights = torch.Tensor(class_weights).cuda()
+		
+		X_dev_a = X_dev_a.cuda()
+		X_dev_v = X_dev_v.cuda()
+		X_final_test_a = X_final_test_a.cuda()
+		X_final_test_v = X_final_test_v.cuda()
+		
+		# Performing random permutation
+		perm_ind = torch.randperm(len(y_train))
+		X_train_a = X_train_a[perm_ind].cuda()
+		X_train_v = X_train_v[perm_ind].cuda()
+		y_train = y_train[perm_ind].cuda()
+		
+		print(f' X_train_a shape is: {X_train_a.shape} y_train length is: {len(y_train)}')
+		print(f' X_train_v shape is: {X_train_v.shape} y_train length is: {len(y_train)}')
+		
+		print(f' X_dev_a shape is: {X_dev_a.shape} y_dev length is: {len(y_dev)}')
+		print(f' X_dev_v shape is: {X_dev_v.shape} y_dev length is: {len(y_dev)}')
+		
+		print(f' X_final_test_a shape is: {X_final_test_a.shape} y_final_test length is: {len(y_final_test)}')
+		print(f' X_final_test_v shape is: {X_final_test_v.shape} y_final_test length is: {len(y_final_test)}')
+		
+		#-----------TRAINING STEP--------------
+		net = MM().cuda()  # reinitializing the NN for the new fold (in order to get rid of the learned parameters)
+		
+		optimizer = optim.Adam(net.parameters(), lr= 0.0001)
+		loss_function = nn.CrossEntropyLoss(weight=class_weights)
+		
+		fold = {"general": general, "train_loss_fold": [], "train_acc_fold": [], "dev_loss_fold": [], "dev_acc_fold": []}
+		for epoch in range(EPOCHS):
+			# Training
+			train_loss_epoch, train_acc_epoch = training(X_train_a, X_train_v, y_train)
+			fold["train_loss_fold"].append(train_loss_epoch)
+			fold["train_acc_fold"].append(train_acc_epoch)
+			# Evaluation on DEV
+			dev_loss_epoch, dev_acc_epoch = testing(X_dev_a, X_dev_v, y_dev)
+			fold["dev_loss_fold"].append(dev_loss_epoch)
+			fold["dev_acc_fold"].append(dev_acc_epoch)
+			print(f'loss: {train_loss_epoch} {dev_loss_epoch} acc: {train_acc_epoch} {dev_acc_epoch}')
+		
+		# Evaluation on FINAL_TEST
+		final_test_predictions, final_test_acc_total = testing(X_final_test_a, X_final_test_v, y_final_test, final_test=True)
+		fold["ACC"] = final_test_acc_total
+		accuracy_of_k_fold.append(final_test_acc_total)
+		print(f'Accuracy of the final test: {final_test_acc_total}%')
+		
+		F1u = round(f1_score(torch.clone(y_final_test).cpu(), torch.clone(final_test_predictions).cpu(), average='macro'),4) #average='macro'
+		fold["F1u"] = F1u
+		F1u_of_k_fold.append(F1u)
+		print(f'F1u-Score of the final test: {F1u}')
+		
+		F1w = round(f1_score(torch.clone(y_final_test).cpu(), torch.clone(final_test_predictions).cpu(), average='weighted'),4) #average='macro' average='weighted'
+		fold["F1w"] = F1w
+		F1w_of_k_fold.append(F1w)
+		print(f'F1w-Score of the final test: {F1w}')
+		
+		fold["y_final_test"] = y_final_test.cpu().tolist()
+		fold["final_test_predictions"] = final_test_predictions.cpu().tolist()
+		
+		print(y_final_test[:20])
+		print(final_test_predictions[:20])
+		insight(y_final_test, final_test_predictions)
+		statistics[i] = fold
+		print('\n')
 
-statistics["total_ACC"] = round(np.mean(accuracy_of_k_fold),4)
-statistics["total_F1u"] = round(np.mean(F1u_of_k_fold),4)
-statistics["toal_F1w"] = round(np.mean(F1w_of_k_fold),4)
-statistics["max_len_audio"] = max_len_features
-statistics["batch_size"] = BATCH_SIZE 
-statistics["epochs"] = EPOCHS 
+	statistics["total_ACC"] = round(np.mean(accuracy_of_k_fold),4)
+	statistics["total_F1u"] = round(np.mean(F1u_of_k_fold),4)
+	statistics["toal_F1w"] = round(np.mean(F1w_of_k_fold),4)
+	statistics["max_len_audio"] = max_len_features
+	statistics["batch_size"] = BATCH_SIZE 
+	statistics["epochs"] = EPOCHS 
 
-print(f'AVERAGE ACCURACY OVER FOLDS IS: {round(np.mean(accuracy_of_k_fold),4)}%')
-print(f'AVERAGE F1u OVER FOLDS IS: {round(np.mean(F1u_of_k_fold),4)}')
-print(f'AVERAGE F1w OVER FOLDS IS: {round(np.mean(F1w_of_k_fold),4)}')
+	print(f'AVERAGE ACCURACY OVER FOLDS IS: {round(np.mean(accuracy_of_k_fold),4)}%')
+	print(f'AVERAGE F1u OVER FOLDS IS: {round(np.mean(F1u_of_k_fold),4)}')
+	print(f'AVERAGE F1w OVER FOLDS IS: {round(np.mean(F1w_of_k_fold),4)}')
 
-aff = input("store the data (y/n): ")
-if aff == "y":
-	with open('stats_mm_'+args["label"]+'_f'+'.json', 'w', encoding='utf-8') as f:
-		json.dump(statistics, f, ensure_ascii=False, indent=2)
+	aff = input("store the data (y/n): ")
+	if aff == "y":
+		with open('stats_mm_'+args["label"]+'_f'+'.json', 'w', encoding='utf-8') as f:
+			json.dump(statistics, f, ensure_ascii=False, indent=2)
