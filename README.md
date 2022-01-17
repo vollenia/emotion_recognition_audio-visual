@@ -15,8 +15,8 @@ Happy | 2,622 | 33.81%
 Neutral | 3,458 | 44.59%
 Sad | 885 | 11.41%
 
-## Feature Extraction
-* Using pandas dataframes containing acousic/visulal features and labels (Mel log filterbanks/grayscaled face detections as features) which were created in context of the unimodal emotion recognition models
+## Feature Extraction/Multimodal Dataframe
+* Using pandas dataframes containing acousic/visual features and labels (Mel log filterbanks/grayscaled face detections as features) which were created in context of the unimodal emotion recognition models
 * Creating a new uniform pandas dataframe by taking the intersection of both dataframes in order to ensure that data from both modalities is present for all samples
 * Padding/cutting audio features to a universal shape (mean nr of frames + std)
 
