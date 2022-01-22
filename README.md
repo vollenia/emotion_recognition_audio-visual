@@ -22,7 +22,7 @@ Sad | 885 | 11.41%
 
 ## Preprocessing/Training/Evaluation
 * Normalizing via Z-Score (mean=0; std=1)
-* Using model designs resembeling the architectures of the individual unimodal models up to the fusion step. Performing model-lvel-fusion by capturing the outputs of the
+* Using model designs resembeling the architectures of the individual unimodal models up to the fusion step. Performing model-level-fusion by capturing the outputs of the
 2 individual CNNs and concatenating the learned features. Each modality contributed an approximately equal amount of features during the fusion, which was desired. Following the concatenation up with 2 fully connected layers
 * Performing training/evaluation in a 6-fold cross validation approach
 
